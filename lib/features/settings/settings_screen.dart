@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:go_router/go_router.dart';
 import 'settings_provider.dart';
 import '../sync/sync_engine.dart';
 import '../products/products_provider.dart';
@@ -10,8 +11,12 @@ import '../sales/invoices_provider.dart';
 import '../suppliers/suppliers_provider.dart';
 import '../purchases/purchases_provider.dart';
 import '../auth/auth_provider.dart';
+import '../../data/repositories/product_repository.dart';
+import '../../data/repositories/customer_repository.dart';
+import '../../data/repositories/invoice_repository.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/file_saver_util.dart';
+
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
