@@ -246,14 +246,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _executeMasterReset() async {
-    // 1. Wipe all local data providers to 0 (clean blank state)
+    // 1. Call backend PostgreSQL database reset first if online
+    try {
+      final apiClient = ref.read(apiClientProvider);
+      await apiClient.dio.post('/sync/reset');
+    } catch (_) {
+      // Offline mode or fallback
+    }
+
+    // 2. Wipe all local data repositories & providers to 0 (clean blank state)
+    await ref.read(productRepositoryProvider).clearAll();
+    await ref.read(customerRepositoryProvider).clearAll();
+    await ref.read(invoiceRepositoryProvider).clearAll();
     await ref.read(productsProvider.notifier).clearAllProducts();
     await ref.read(customersProvider.notifier).clearAllCustomers();
     await ref.read(invoicesProvider.notifier).clearAllInvoices();
     await ref.read(suppliersProvider.notifier).clearAllSuppliers();
     await ref.read(purchasesProvider.notifier).clearAllPurchases();
 
-    // 2. Wipe all raw local SharedPreferences database entries
+    // 3. Wipe all raw local SharedPreferences database entries
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('archpharma_products_db', jsonEncode([]));
@@ -263,16 +274,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await prefs.setString('archpharma_purchases_db', jsonEncode([]));
     } catch (_) {}
 
-    // 3. Reset settings to default
+    // 4. Reset settings to default
     await ref.read(settingsProvider.notifier).resetToDefaults();
-
-    // 4. Also call backend PostgreSQL database reset if connected
-    try {
-      final apiClient = ref.read(apiClientProvider);
-      await apiClient.dio.post('/sync/reset');
-    } catch (_) {
-      // Offline mode or server unreachable, client is already cleanly wiped
-    }
 
     // 5. Invalidate all providers so every screen (Reports, Dashboard, Credit, etc.) immediately rebuilds clean
     ref.invalidate(productsProvider);
@@ -280,6 +283,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ref.invalidate(invoicesProvider);
     ref.invalidate(suppliersProvider);
     ref.invalidate(purchasesProvider);
+
 
     // 6. Resync controllers and state
     final defaultSettings = ref.read(settingsProvider);
