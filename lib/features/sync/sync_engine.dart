@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../products/products_provider.dart';
+import '../customers/customers_provider.dart';
+import '../sales/invoices_provider.dart';
 
 enum ConnectivityState { online, offline, syncing }
 
@@ -20,9 +23,10 @@ class SyncState {
 }
 
 class SyncEngineNotifier extends StateNotifier<SyncState> {
+  final Ref _ref;
   Timer? _syncTimer;
 
-  SyncEngineNotifier()
+  SyncEngineNotifier(this._ref)
       : super(SyncState(
           connectivity: ConnectivityState.online,
           pendingCount: 0,
@@ -67,7 +71,7 @@ class SyncEngineNotifier extends StateNotifier<SyncState> {
   }
 
   Future<void> triggerSync() async {
-    if (state.isOffline || state.pendingCount == 0) return;
+    if (state.isOffline) return;
 
     state = SyncState(
       connectivity: ConnectivityState.syncing,
@@ -75,8 +79,11 @@ class SyncEngineNotifier extends StateNotifier<SyncState> {
       lastSyncedAt: state.lastSyncedAt,
     );
 
-    // Simulate REST API POST /sync/push payload & GET /sync/pull
-    await Future.delayed(const Duration(milliseconds: 800));
+    try {
+      _ref.invalidate(productsProvider);
+      _ref.invalidate(customersProvider);
+      _ref.invalidate(invoicesProvider);
+    } catch (_) {}
 
     state = SyncState(
       connectivity: ConnectivityState.online,
@@ -87,5 +94,5 @@ class SyncEngineNotifier extends StateNotifier<SyncState> {
 }
 
 final syncEngineProvider = StateNotifierProvider<SyncEngineNotifier, SyncState>((ref) {
-  return SyncEngineNotifier();
+  return SyncEngineNotifier(ref);
 });

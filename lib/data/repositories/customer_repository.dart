@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../datasource/api_client.dart';
+import '../../features/auth/auth_provider.dart';
 import '../models/customer_model.dart';
 
 abstract class CustomerRepository {
@@ -14,6 +16,9 @@ abstract class CustomerRepository {
 
 class CustomerRepositoryImpl implements CustomerRepository {
   static const String _storageKey = 'archpharma_customers_db';
+  final ApiClient? _apiClient;
+
+  CustomerRepositoryImpl([this._apiClient]);
 
   List<CustomerItem>? _cachedCustomers;
 
@@ -28,6 +33,31 @@ class CustomerRepositoryImpl implements CustomerRepository {
 
   @override
   Future<List<CustomerItem>> getCustomers() async {
+    // 1. Fetch fresh data from cloud API if online
+    if (_apiClient != null) {
+      try {
+        final res = await _apiClient!.dio.get('/customers');
+        if (res.statusCode == 200 && res.data is List) {
+          final cloudList = (res.data as List).map((json) {
+            final map = json as Map<String, dynamic>;
+            return CustomerItem(
+              id: map['id']?.toString() ?? '',
+              businessName: map['name']?.toString() ?? map['businessName']?.toString() ?? '',
+              contactPerson: map['contactPerson']?.toString() ?? '',
+              phone: map['phone']?.toString() ?? '',
+              email: map['email']?.toString() ?? '',
+              address: map['address']?.toString() ?? '',
+              creditLimit: (map['creditLimit'] as num?)?.toDouble() ?? 0.0,
+              outstandingBalance: (map['outstandingBalance'] as num?)?.toDouble() ?? (map['currentBalance'] as num?)?.toDouble() ?? 0.0,
+              status: map['status']?.toString() ?? 'active',
+            );
+          }).toList();
+          await _saveToStorage(cloudList);
+          return List.from(cloudList);
+        }
+      } catch (_) {}
+    }
+
     if (_cachedCustomers != null) {
       return List.from(_cachedCustomers!);
     }
@@ -44,7 +74,6 @@ class CustomerRepositoryImpl implements CustomerRepository {
       }
     } catch (_) {}
 
-    // First run on fresh device: start clean with 0 customers
     _cachedCustomers = [];
     await _saveToStorage(_cachedCustomers!);
     return List.from(_cachedCustomers!);
@@ -56,6 +85,20 @@ class CustomerRepositoryImpl implements CustomerRepository {
     list.removeWhere((c) => c.id == customer.id);
     list.insert(0, customer);
     await _saveToStorage(list);
+
+    if (_apiClient != null) {
+      try {
+        await _apiClient!.dio.post('/customers', data: {
+          'id': customer.id,
+          'name': customer.businessName,
+          'contactPerson': customer.contactPerson,
+          'phone': customer.phone,
+          'email': customer.email,
+          'address': customer.address,
+          'creditLimit': customer.creditLimit,
+        });
+      } catch (_) {}
+    }
   }
 
   @override
@@ -68,6 +111,19 @@ class CustomerRepositoryImpl implements CustomerRepository {
       list.insert(0, customer);
     }
     await _saveToStorage(list);
+
+    if (_apiClient != null) {
+      try {
+        await _apiClient!.dio.put('/customers/${customer.id}', data: {
+          'name': customer.businessName,
+          'contactPerson': customer.contactPerson,
+          'phone': customer.phone,
+          'email': customer.email,
+          'address': customer.address,
+          'creditLimit': customer.creditLimit,
+        });
+      } catch (_) {}
+    }
   }
 
   @override
@@ -75,6 +131,12 @@ class CustomerRepositoryImpl implements CustomerRepository {
     final list = await getCustomers();
     list.removeWhere((c) => c.id == id);
     await _saveToStorage(list);
+
+    if (_apiClient != null) {
+      try {
+        await _apiClient!.dio.delete('/customers/$id');
+      } catch (_) {}
+    }
   }
 
   @override
@@ -94,5 +156,6 @@ class CustomerRepositoryImpl implements CustomerRepository {
 }
 
 final customerRepositoryProvider = Provider<CustomerRepository>((ref) {
-  return CustomerRepositoryImpl();
+  final apiClient = ref.watch(apiClientProvider);
+  return CustomerRepositoryImpl(apiClient);
 });
