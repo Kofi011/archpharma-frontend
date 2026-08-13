@@ -164,11 +164,24 @@ class _NewInvoiceScreenState extends ConsumerState<NewInvoiceScreen> {
         ? 'paid'
         : (_amountPaid > 0 ? 'partial' : 'unpaid');
 
+    String? resolvedCustomerId;
+    String resolvedCustomerName = 'Walk-in Customer';
+    if (_selectedCustomer != 'Walk-in Customer') {
+      try {
+        final customers = ref.read(customersProvider);
+        final cust = customers.firstWhere((c) => c.businessName == _selectedCustomer);
+        resolvedCustomerId = cust.id;
+        resolvedCustomerName = cust.businessName;
+      } catch (_) {
+        resolvedCustomerName = _selectedCustomer;
+      }
+    }
+
     return InvoiceRecord(
       id: invoiceId,
       invoiceNumber: invoiceNumber,
-      customerId: _selectedCustomer,
-      customerName: _selectedCustomer,
+      customerId: resolvedCustomerId ?? '',
+      customerName: resolvedCustomerName,
       cashierName: _cashierName.isNotEmpty ? _cashierName : 'Cashier',
       attendantName: _attendantName.isNotEmpty ? _attendantName : 'Attendant',
       invoiceDate: DateTime.now(),
