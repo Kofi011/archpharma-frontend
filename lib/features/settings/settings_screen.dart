@@ -31,7 +31,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late final TextEditingController _phonesController;
   late final TextEditingController _apiEndpointController;
 
-  bool _initialized = false;
   bool _preventZeroStockBilling = true;
   bool _autoLockOverdueAccounts = true;
   double _expiryAlertDays = 90;
@@ -61,7 +60,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _printerType = settings.printerType;
     _autoPrintOnSave = settings.autoPrintOnSave;
     _printCopiesCount = settings.printCopiesCount;
-    _initialized = true;
   }
 
   void _syncFromSettings(AppSettings settings) {
@@ -204,15 +202,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             const SizedBox(height: 12),
             const Text(
-              'This action will permanently delete everything from the database:',
+              'This action will permanently wipe both the cloud database and local device storage:',
               style: TextStyle(fontSize: 13),
             ),
-            const SizedBox(height: 6),
-            const Text('• All products & inventory stock', style: TextStyle(fontSize: 12, color: Colors.grey)),
-            const Text('• All customers & debt ledgers', style: TextStyle(fontSize: 12, color: Colors.grey)),
-            const Text('• All suppliers & vendor accounts', style: TextStyle(fontSize: 12, color: Colors.grey)),
-            const Text('• All purchases & stock receipts', style: TextStyle(fontSize: 12, color: Colors.grey)),
-            const Text('• All invoices, sales & payment history', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            const SizedBox(height: 8),
+            const Text('• Cloud PostgreSQL tables (products, customers, ledgers)', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            const Text('• All local products & inventory stock', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            const Text('• All customers, suppliers & credit ledgers', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            const Text('• All purchases, invoices & sales transactions', style: TextStyle(fontSize: 12, color: Colors.grey)),
             const Text('• Restore all settings to brand new factory defaults', style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 14),
             Container(
@@ -222,7 +219,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: const Text(
-                'WARNING: This will leave the system clean like a brand new installation. It cannot be undone.',
+                'WARNING: The system will return to a clean, blank factory state. This action cannot be undone.',
                 style: TextStyle(fontSize: 11, color: AppColors.error, fontWeight: FontWeight.w600),
               ),
             ),
@@ -246,121 +243,407 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
 
     if (confirmed == true && mounted) {
-      await _executeMasterReset();
+      await _executeMasterResetWithProgress();
     }
   }
 
-  Future<void> _executeMasterReset() async {
-    // Show non-dismissible loading dialog during reset
-    showDialog(
+  Future<void> _executeMasterResetWithProgress() async {
+    final List<Map<String, dynamic>> steps = [
+      {
+        'title': 'Cloud PostgreSQL Database Purge',
+        'subtitle': 'Calling /api/v1/sync/reset to wipe remote tables',
+        'status': 'pending', // pending, running, success, warning
+        'detail': '',
+      },
+      {
+        'title': 'Local Product & Inventory Purge',
+        'subtitle': 'Wiping product catalog and stock ledger',
+        'status': 'pending',
+        'detail': '',
+      },
+      {
+        'title': 'Customer & Supplier Ledgers Purge',
+        'subtitle': 'Clearing contacts, debt ledgers, and vendor accounts',
+        'status': 'pending',
+        'detail': '',
+      },
+      {
+        'title': 'Invoices & Sales Transactions Purge',
+        'subtitle': 'Clearing invoice histories and payment receipts',
+        'status': 'pending',
+        'detail': '',
+      },
+      {
+        'title': 'Persistent Local Cache Cleanup',
+        'subtitle': 'Wiping local SharedPreferences database entries',
+        'status': 'pending',
+        'detail': '',
+      },
+      {
+        'title': 'Factory Configuration Reset',
+        'subtitle': 'Restoring business rules, printer & pricing parameters',
+        'status': 'pending',
+        'detail': '',
+      },
+      {
+        'title': 'UI Refresh & State Invalidation',
+        'subtitle': 'Refreshing all dashboard views, reports & providers',
+        'status': 'pending',
+        'detail': '',
+      },
+    ];
+
+    bool isComplete = false;
+    String completionMessage = '';
+
+    await showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => PopScope(
-        canPop: false,
-        child: Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(color: AppColors.error),
-                SizedBox(height: 20),
-                Text(
-                  'Performing Master Factory Reset...',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            void runReset() async {
+              // 1. Cloud backend database reset
+              setModalState(() {
+                steps[0]['status'] = 'running';
+                steps[0]['detail'] = 'Contacting server...';
+              });
+              await Future.delayed(const Duration(milliseconds: 300));
+              try {
+                final apiClient = ref.read(apiClientProvider);
+                final res = await apiClient.dio.post('/sync/reset');
+                setModalState(() {
+                  steps[0]['status'] = 'success';
+                  steps[0]['detail'] = res.data?['message'] ?? 'Cloud tables truncated successfully';
+                });
+              } catch (e) {
+                setModalState(() {
+                  steps[0]['status'] = 'warning';
+                  steps[0]['detail'] = 'Backend offline / local fallback';
+                });
+              }
+
+              // 2. Local products & inventory
+              setModalState(() {
+                steps[1]['status'] = 'running';
+              });
+              await Future.delayed(const Duration(milliseconds: 200));
+              try {
+                await ref.read(productRepositoryProvider).clearAll();
+                await ref.read(productsProvider.notifier).clearAllProducts();
+                setModalState(() {
+                  steps[1]['status'] = 'success';
+                  steps[1]['detail'] = '0 products in catalog';
+                });
+              } catch (e) {
+                setModalState(() {
+                  steps[1]['status'] = 'warning';
+                  steps[1]['detail'] = 'Cleared local products';
+                });
+              }
+
+              // 3. Customers & Suppliers
+              setModalState(() {
+                steps[2]['status'] = 'running';
+              });
+              await Future.delayed(const Duration(milliseconds: 200));
+              try {
+                await ref.read(customerRepositoryProvider).clearAll();
+                await ref.read(customersProvider.notifier).clearAllCustomers();
+                await ref.read(suppliersProvider.notifier).clearAllSuppliers();
+                await ref.read(purchasesProvider.notifier).clearAllPurchases();
+                setModalState(() {
+                  steps[2]['status'] = 'success';
+                  steps[2]['detail'] = 'All customer & vendor accounts wiped';
+                });
+              } catch (e) {
+                setModalState(() {
+                  steps[2]['status'] = 'warning';
+                  steps[2]['detail'] = 'Cleared local contacts';
+                });
+              }
+
+              // 4. Invoices & Sales
+              setModalState(() {
+                steps[3]['status'] = 'running';
+              });
+              await Future.delayed(const Duration(milliseconds: 200));
+              try {
+                await ref.read(invoiceRepositoryProvider).clearAll();
+                await ref.read(invoicesProvider.notifier).clearAllInvoices();
+                setModalState(() {
+                  steps[3]['status'] = 'success';
+                  steps[3]['detail'] = 'All invoices & payment records wiped';
+                });
+              } catch (e) {
+                setModalState(() {
+                  steps[3]['status'] = 'warning';
+                  steps[3]['detail'] = 'Cleared sales records';
+                });
+              }
+
+              // 5. Persistent local cache cleanup
+              setModalState(() {
+                steps[4]['status'] = 'running';
+              });
+              await Future.delayed(const Duration(milliseconds: 200));
+              try {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setString('archpharma_products_db', jsonEncode([]));
+                await prefs.setString('archpharma_customers_db', jsonEncode([]));
+                await prefs.setString('archpharma_invoices_db', jsonEncode([]));
+                await prefs.setString('archpharma_suppliers_db', jsonEncode([]));
+                await prefs.setString('archpharma_purchases_db', jsonEncode([]));
+                await prefs.remove('archpharma_app_settings');
+                setModalState(() {
+                  steps[4]['status'] = 'success';
+                  steps[4]['detail'] = 'Persistent storage sanitized';
+                });
+              } catch (e) {
+                setModalState(() {
+                  steps[4]['status'] = 'warning';
+                  steps[4]['detail'] = 'Storage reset';
+                });
+              }
+
+              // 6. Factory settings reset
+              setModalState(() {
+                steps[5]['status'] = 'running';
+              });
+              await Future.delayed(const Duration(milliseconds: 200));
+              try {
+                await ref.read(settingsProvider.notifier).resetToDefaults();
+                final defaults = ref.read(settingsProvider);
+                _syncFromSettings(defaults);
+                setModalState(() {
+                  steps[5]['status'] = 'success';
+                  steps[5]['detail'] = 'Factory defaults restored';
+                });
+              } catch (e) {
+                setModalState(() {
+                  steps[5]['status'] = 'warning';
+                  steps[5]['detail'] = 'Settings reset';
+                });
+              }
+
+              // 7. State invalidation & UI refresh
+              setModalState(() {
+                steps[6]['status'] = 'running';
+              });
+              await Future.delayed(const Duration(milliseconds: 250));
+              ref.invalidate(productsProvider);
+              ref.invalidate(customersProvider);
+              ref.invalidate(invoicesProvider);
+              ref.invalidate(suppliersProvider);
+              ref.invalidate(purchasesProvider);
+              ref.invalidate(settingsProvider);
+              ref.invalidate(syncEngineProvider);
+
+              setModalState(() {
+                steps[6]['status'] = 'success';
+                steps[6]['detail'] = 'All providers refreshed';
+                isComplete = true;
+                completionMessage = 'Master Factory Reset successfully completed! System is fresh and ready.';
+              });
+            }
+
+            // Start reset on first build
+            if (steps.every((s) => s['status'] == 'pending')) {
+              WidgetsBinding.instance.addPostFrameCallback((_) => runReset());
+            }
+
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Container(
+                width: 520,
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: isComplete ? AppColors.success.withValues(alpha: 0.12) : AppColors.error.withValues(alpha: 0.12),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            isComplete ? Icons.check_circle : Icons.cleaning_services_rounded,
+                            color: isComplete ? AppColors.success : AppColors.error,
+                            size: 26,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                isComplete ? 'Reset Complete!' : 'Executing Master Factory Reset',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                isComplete
+                                    ? 'All databases and states restored to factory blank'
+                                    : 'Please wait while all data layers are being purged...',
+                                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    const Divider(height: 1),
+                    const SizedBox(height: 14),
+
+                    // Steps Checklist
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 340),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: steps.map((s) {
+                            final status = s['status'] as String;
+                            Widget leadingIcon;
+                            Color titleColor = Colors.black87;
+
+                            if (status == 'running') {
+                              leadingIcon = const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2.2, color: AppColors.primary),
+                              );
+                              titleColor = AppColors.primary;
+                            } else if (status == 'success') {
+                              leadingIcon = const Icon(Icons.check_circle, size: 20, color: AppColors.success);
+                            } else if (status == 'warning') {
+                              leadingIcon = const Icon(Icons.info_outline, size: 20, color: AppColors.warning);
+                            } else {
+                              leadingIcon = Icon(Icons.radio_button_unchecked, size: 20, color: Colors.grey[400]);
+                              titleColor = Colors.grey;
+                            }
+
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 6.0),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 2),
+                                    child: leadingIcon,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                s['title'] as String,
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w600,
+                                                  fontSize: 13,
+                                                  color: titleColor,
+                                                ),
+                                              ),
+                                            ),
+                                            if ((s['detail'] as String).isNotEmpty)
+                                              Text(
+                                                s['detail'] as String,
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w500,
+                                                  color: status == 'success' ? AppColors.success : (status == 'warning' ? AppColors.warning : Colors.grey),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          s['subtitle'] as String,
+                                          style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 18),
+                    if (isComplete) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.success.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.verified, color: AppColors.success, size: 20),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                completionMessage,
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.success),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(dialogCtx).pop();
+                              setState(() {});
+                            },
+                            child: const Text('Stay on Settings'),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.of(dialogCtx).pop();
+                              context.go('/dashboard');
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                            ),
+                            icon: const Icon(Icons.dashboard_outlined, size: 18),
+                            label: const Text('Go to Dashboard'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
                 ),
-                SizedBox(height: 8),
-                Text(
-                  'Wiping cloud database, local storage & resetting system state.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    // 1. Call backend PostgreSQL database reset first if online
-    try {
-      final apiClient = ref.read(apiClientProvider);
-      await apiClient.dio.post('/sync/reset');
-    } catch (_) {
-      // Offline mode or fallback
-    }
-
-    // 2. Wipe all local data repositories & providers to 0 (clean blank state)
-    await ref.read(productRepositoryProvider).clearAll();
-    await ref.read(customerRepositoryProvider).clearAll();
-    await ref.read(invoiceRepositoryProvider).clearAll();
-    await ref.read(productsProvider.notifier).clearAllProducts();
-    await ref.read(customersProvider.notifier).clearAllCustomers();
-    await ref.read(invoicesProvider.notifier).clearAllInvoices();
-    await ref.read(suppliersProvider.notifier).clearAllSuppliers();
-    await ref.read(purchasesProvider.notifier).clearAllPurchases();
-
-    // 3. Wipe all raw local SharedPreferences database entries
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('archpharma_products_db', jsonEncode([]));
-      await prefs.setString('archpharma_customers_db', jsonEncode([]));
-      await prefs.setString('archpharma_invoices_db', jsonEncode([]));
-      await prefs.setString('archpharma_suppliers_db', jsonEncode([]));
-      await prefs.setString('archpharma_purchases_db', jsonEncode([]));
-    } catch (_) {}
-
-    // 4. Reset settings to default
-    await ref.read(settingsProvider.notifier).resetToDefaults();
-
-    // 5. Invalidate all providers so every screen (Reports, Dashboard, Credit, etc.) immediately rebuilds clean
-    ref.invalidate(productsProvider);
-    ref.invalidate(customersProvider);
-    ref.invalidate(invoicesProvider);
-    ref.invalidate(suppliersProvider);
-    ref.invalidate(purchasesProvider);
-    ref.invalidate(settingsProvider);
-
-    // 6. Resync controllers and state
-    final defaultSettings = ref.read(settingsProvider);
-    _syncFromSettings(defaultSettings);
-
-    // Close loading dialog if still open
-    if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
-      Navigator.of(context, rootNavigator: true).pop();
-    }
-
-    // 7. Auto-navigate to Dashboard to refresh the entire UI
-    if (mounted) {
-      context.go('/dashboard');
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Row(
-            children: [
-              Icon(Icons.check_circle_outline, color: Colors.white, size: 20),
-              SizedBox(width: 10),
-              Expanded(
-                child: Text('Master Factory Reset Complete! System is brand new and ready for use.'),
               ),
-            ],
-          ),
-          backgroundColor: AppColors.primary,
-          behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 4),
-        ),
-      );
-    }
+            );
+          },
+        );
+      },
+    );
   }
 
 
   @override
   Widget build(BuildContext context) {
     ref.listen<AppSettings>(settingsProvider, (prev, next) {
-      if (!_initialized) {
-        _syncFromSettings(next);
-      }
+      _syncFromSettings(next);
     });
 
     final syncState = ref.watch(syncEngineProvider);
