@@ -246,6 +246,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _executeMasterReset() async {
+    // Show non-dismissible loading dialog during reset
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: AppColors.error),
+                SizedBox(height: 20),
+                Text(
+                  'Performing Master Factory Reset...',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Wiping cloud database, local storage & resetting system state.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
     // 1. Call backend PostgreSQL database reset first if online
     try {
       final apiClient = ref.read(apiClientProvider);
@@ -283,31 +315,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ref.invalidate(invoicesProvider);
     ref.invalidate(suppliersProvider);
     ref.invalidate(purchasesProvider);
-
+    ref.invalidate(settingsProvider);
 
     // 6. Resync controllers and state
     final defaultSettings = ref.read(settingsProvider);
     _syncFromSettings(defaultSettings);
 
+    // Close loading dialog if still open
+    if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+
+    // 7. Auto-navigate to Dashboard to refresh the entire UI
     if (mounted) {
+      context.go('/dashboard');
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Row(
             children: [
-              Icon(Icons.cleaning_services_outlined, color: Colors.white, size: 20),
+              Icon(Icons.check_circle_outline, color: Colors.white, size: 20),
               SizedBox(width: 10),
               Expanded(
-                child: Text('Master Factory Reset Complete! All records deleted — system is brand new.'),
+                child: Text('Master Factory Reset Complete! System is brand new and ready for use.'),
               ),
             ],
           ),
-          backgroundColor: AppColors.error,
+          backgroundColor: AppColors.primary,
           behavior: SnackBarBehavior.floating,
           duration: Duration(seconds: 4),
         ),
       );
     }
   }
+
 
   @override
   Widget build(BuildContext context) {

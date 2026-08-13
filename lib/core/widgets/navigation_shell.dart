@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/auth/auth_provider.dart';
 import '../theme/app_colors.dart';
+import 'inactivity_watcher.dart';
+
 
 class NavigationShell extends ConsumerWidget {
   final Widget child;
@@ -58,16 +60,16 @@ class NavigationShell extends ConsumerWidget {
     final userSession = ref.watch(authProvider);
     final isDesktop = MediaQuery.of(context).size.width >= 900;
 
-    if (isDesktop) {
-      // Desktop Navigation Layout (Sidebar + Content)
-      return Scaffold(
-        body: Row(
-          children: [
-            Container(
-              width: 260,
-              color: AppColors.sidebarLight,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    final Widget scaffold = isDesktop
+        ? Scaffold(
+            body: Row(
+              children: [
+                Container(
+                  width: 260,
+                  color: AppColors.sidebarLight,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+
                 children: [
                   // Logo Header (Clickable to refresh / reset to Dashboard)
                   InkWell(
@@ -244,79 +246,82 @@ class NavigationShell extends ConsumerWidget {
             Expanded(child: child),
           ],
         ),
+      )
+    : Scaffold(
+        body: child,
+        bottomNavigationBar: BottomNavigationBar(
+          type: BottomNavigationBarType.fixed,
+          currentIndex: selectedIndex == 0
+              ? 0
+              : selectedIndex == 1
+                  ? 1
+                  : (selectedIndex == 2 || selectedIndex == 3)
+                      ? 2
+                      : (selectedIndex == 4 || selectedIndex == 5)
+                          ? 3
+                          : selectedIndex == 6
+                              ? 4
+                              : 0,
+          onTap: (idx) {
+            switch (idx) {
+              case 0:
+                _onItemTapped(0, context);
+                break;
+              case 1:
+                _onItemTapped(1, context);
+                break;
+              case 2:
+                _onItemTapped(2, context);
+                break;
+              case 3:
+                _onItemTapped(4, context);
+                break;
+              case 4:
+                _onItemTapped(6, context);
+                break;
+            }
+          },
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.space_dashboard_outlined),
+              activeIcon: Icon(Icons.space_dashboard_rounded),
+              label: 'Dashboard',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.receipt_long_outlined),
+              activeIcon: Icon(Icons.receipt_long_rounded),
+              label: 'Sales',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.warehouse_outlined),
+              activeIcon: Icon(Icons.warehouse_rounded),
+              label: 'Inventory',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.business_center_outlined),
+              activeIcon: Icon(Icons.business_center_rounded),
+              label: 'Customers',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.analytics_outlined),
+              activeIcon: Icon(Icons.analytics_rounded),
+              label: 'Reports',
+            ),
+          ],
+        ),
+        floatingActionButton: FloatingActionButton(
+          onPressed: () => context.push('/sales/new-invoice'),
+          backgroundColor: AppColors.primary,
+          child: const Icon(Icons.add_shopping_cart_rounded, color: Colors.white),
+        ),
       );
-    }
 
-    // Mobile/Tablet Scaffold without Drawer to prevent double AppBar description & right overflows
-    return Scaffold(
-      body: child,
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        currentIndex: selectedIndex == 0
-            ? 0
-            : selectedIndex == 1
-                ? 1
-                : (selectedIndex == 2 || selectedIndex == 3)
-                    ? 2
-                    : (selectedIndex == 4 || selectedIndex == 5)
-                        ? 3
-                        : selectedIndex == 6
-                            ? 4
-                            : 0,
-        onTap: (idx) {
-          switch (idx) {
-            case 0:
-              _onItemTapped(0, context);
-              break;
-            case 1:
-              _onItemTapped(1, context);
-              break;
-            case 2:
-              _onItemTapped(2, context);
-              break;
-            case 3:
-              _onItemTapped(4, context);
-              break;
-            case 4:
-              _onItemTapped(6, context);
-              break;
-          }
-        },
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.space_dashboard_outlined),
-            activeIcon: Icon(Icons.space_dashboard_rounded),
-            label: 'Dashboard',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.receipt_long_outlined),
-            activeIcon: Icon(Icons.receipt_long_rounded),
-            label: 'Sales',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.warehouse_outlined),
-            activeIcon: Icon(Icons.warehouse_rounded),
-            label: 'Inventory',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.business_center_outlined),
-            activeIcon: Icon(Icons.business_center_rounded),
-            label: 'Customers',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.analytics_outlined),
-            activeIcon: Icon(Icons.analytics_rounded),
-            label: 'Reports',
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => context.push('/sales/new-invoice'),
-        backgroundColor: AppColors.primary,
-        child: const Icon(Icons.add_shopping_cart_rounded, color: Colors.white),
-      ),
+    return InactivityWatcher(
+      timeout: const Duration(minutes: 15),
+      child: scaffold,
     );
   }
+
 
   Widget _buildSidebarItem({
     required IconData icon,
