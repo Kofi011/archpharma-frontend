@@ -332,38 +332,42 @@ class NavigationShell extends ConsumerWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
       decoration: BoxDecoration(
-        color: isSelected ? Colors.white : Colors.transparent,
         borderRadius: BorderRadius.circular(8),
         boxShadow: isSelected
-            ? [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4, offset: const Offset(0, 2))]
+            ? [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 4, offset: const Offset(0, 2))]
             : null,
       ),
-      child: ListTile(
-        dense: true,
-        onTap: onTap,
-        leading: Icon(
-          icon,
-          color: isSelected ? AppColors.primary : AppColors.textSecondaryLight,
-          size: 20,
-        ),
-        title: Text(
-          label,
-          style: TextStyle(
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-            color: isSelected ? AppColors.primary : AppColors.textPrimaryLight,
-            fontSize: 14,
+      child: Material(
+        color: isSelected ? Colors.white : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          dense: true,
+          onTap: onTap,
+          leading: Icon(
+            icon,
+            color: isSelected ? AppColors.primary : AppColors.textSecondaryLight,
+            size: 20,
           ),
+          title: Text(
+            label,
+            style: TextStyle(
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+              color: isSelected ? AppColors.primary : AppColors.textPrimaryLight,
+              fontSize: 14,
+            ),
+          ),
+          trailing: isSelected
+              ? Container(
+                  width: 4,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                )
+              : null,
         ),
-        trailing: isSelected
-            ? Container(
-                width: 4,
-                height: 18,
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              )
-            : null,
       ),
     );
   }
