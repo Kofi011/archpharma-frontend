@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:dio/dio.dart';
 import '../../data/datasource/api_client.dart';
 import '../../core/services/logger_service.dart';
+import '../../core/utils/api_error_handler.dart';
 import '../settings/settings_provider.dart';
 
 enum UserRole { admin, cashier, storekeeper, accountant }
@@ -102,19 +103,9 @@ class AuthNotifier extends StateNotifier<UserSession?> {
       await _storage.write(key: 'user_session', value: jsonEncode(session.toJson()));
 
       state = session;
-    } on DioException catch (e) {
-      LoggerService.warning('Dio login exception: ${e.message}', tag: 'Auth');
-      if (e.response != null && e.response?.data != null) {
-        final message = e.response?.data?['message'];
-        if (message is List) {
-          throw Exception(message.join(', '));
-        }
-        throw Exception(message ?? 'Invalid credentials. Please try again.');
-      }
-      throw Exception('Failed to connect. Check your network and try again.');
     } catch (e) {
-      LoggerService.error('Unexpected login exception', error: e, tag: 'Auth');
-      throw Exception('An unexpected error occurred during login.');
+      final userFriendlyMsg = ApiErrorHandler.handle(e);
+      throw Exception(userFriendlyMsg);
     }
   }
 
@@ -152,7 +143,21 @@ final secureStorageProvider = Provider<FlutterSecureStorage>((ref) {
 final apiClientProvider = Provider<ApiClient>((ref) {
   final storage = ref.watch(secureStorageProvider);
   final settings = ref.watch(settingsProvider);
-  return ApiClient(storage, baseUrl: settings.apiEndpoint);
+  final client = ApiClient(storage, baseUrl: settings.apiEndpoint);
+
+  client.dio.interceptors.add(
+    InterceptorsWrapper(
+      onError: (DioException e, handler) async {
+        if (e.response?.statusCode == 401 && e.requestOptions.path != '/auth/login') {
+          LoggerService.warning('Global Interceptor: 401 Unauthorized detected. Auto-logging out.', tag: 'Auth');
+          ref.read(authProvider.notifier).logout();
+        }
+        return handler.next(e);
+      },
+    ),
+  );
+
+  return client;
 });
 
 final authProvider = StateNotifierProvider<AuthNotifier, UserSession?>((ref) {
