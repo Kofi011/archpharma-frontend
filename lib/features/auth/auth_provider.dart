@@ -60,6 +60,19 @@ class AuthNotifier extends StateNotifier<UserSession?> {
 
   AuthNotifier(this._apiClient, this._storage) : super(null) {
     checkAuth();
+    
+    // Register global interceptor for 401 Unauthorized handling to avoid provider circularity
+    _apiClient.dio.interceptors.add(
+      InterceptorsWrapper(
+        onError: (DioException e, handler) async {
+          if (e.response?.statusCode == 401 && e.requestOptions.path != '/auth/login') {
+            LoggerService.warning('Global Interceptor: 401 Unauthorized detected. Auto-logging out.', tag: 'Auth');
+            await logout();
+          }
+          return handler.next(e);
+        },
+      ),
+    );
   }
 
   Future<void> checkAuth() async {
@@ -143,21 +156,7 @@ final secureStorageProvider = Provider<FlutterSecureStorage>((ref) {
 final apiClientProvider = Provider<ApiClient>((ref) {
   final storage = ref.watch(secureStorageProvider);
   final settings = ref.watch(settingsProvider);
-  final client = ApiClient(storage, baseUrl: settings.apiEndpoint);
-
-  client.dio.interceptors.add(
-    InterceptorsWrapper(
-      onError: (DioException e, handler) async {
-        if (e.response?.statusCode == 401 && e.requestOptions.path != '/auth/login') {
-          LoggerService.warning('Global Interceptor: 401 Unauthorized detected. Auto-logging out.', tag: 'Auth');
-          ref.read(authProvider.notifier).logout();
-        }
-        return handler.next(e);
-      },
-    ),
-  );
-
-  return client;
+  return ApiClient(storage, baseUrl: settings.apiEndpoint);
 });
 
 final authProvider = StateNotifierProvider<AuthNotifier, UserSession?>((ref) {
