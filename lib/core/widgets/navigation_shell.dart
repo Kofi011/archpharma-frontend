@@ -91,7 +91,7 @@ class NavigationShell extends ConsumerWidget {
                                   errorBuilder: (context, error, stackTrace) => Container(
                                     padding: const EdgeInsets.all(4),
                                     decoration: BoxDecoration(
-                                      color: AppColors.primary.withOpacity(0.12),
+                                      color: AppColors.primary.withValues(alpha: 0.12),
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: const Icon(Icons.local_pharmacy, color: AppColors.primary, size: 20),
